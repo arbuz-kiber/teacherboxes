@@ -27,6 +27,14 @@ card_menus = {}
 data_lock = threading.Lock()
 _save_scheduled = False
 
+# ====== НАСТРОЙКА ПУТЕЙ К ДАННЫМ ======
+DATA_DIR = os.environ.get('DATA_PATH', '.')
+DATA_FILE = os.path.join(DATA_DIR, "users.json")
+
+# Создаём папку если её нет
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {}
@@ -34,17 +42,18 @@ def load_data():
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, IOError):
+        print(f"[WARN] Не удалось загрузить {DATA_FILE}, создаём новый")
         return {}
 
 def save_data():
     """Потокобезопасное сохранение."""
     with data_lock:
         try:
-            # Атомарная запись через временный файл
             tmp_file = DATA_FILE + ".tmp"
             with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(users, f, indent=4, ensure_ascii=False)
             os.replace(tmp_file, DATA_FILE)
+            print(f"[OK] Данные сохранены в {DATA_FILE}")
         except IOError as e:
             print(f"[ERROR] Не удалось сохранить данные: {e}")
 
