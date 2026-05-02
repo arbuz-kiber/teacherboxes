@@ -1,4 +1,4 @@
-# v 2.2
+# v 2.3
 
 import telebot
 import random
