@@ -1090,6 +1090,113 @@ def global_message(msg):
         f"❌ Не доставлено: {failed}"
     )
 
+# ====== ВЫДАТЬ КОИНЫ/БОКСЫ ПОЛЬЗОВАТЕЛЮ ======
+@bot.message_handler(commands=['give'])
+def give_coins(msg):
+    if str(msg.from_user.id) != ADMIN_ID:
+        bot.send_message(msg.chat.id, "❌ У тебя нет прав для этой команды.")
+        return
+
+    # Формат: /give @username 1000 coins
+    # или: /give 123456789 5 boxes
+    parts = msg.text.split()
+    
+    if len(parts) < 4:
+        bot.send_message(
+            msg.chat.id,
+            "❌ Неверный формат.\n\n"
+            "<b>Примеры:</b>\n"
+            "/give @username 1000 coins\n"
+            "/give 123456789 5 boxes\n"
+            "/give @username 500 coins 10 boxes",
+            parse_mode="HTML"
+        )
+        return
+
+    target = parts[1]  # @username или ID
+    
+    # Парсим параметры (coins/boxes могут быть в любом порядке)
+    coins_to_give = 0
+    boxes_to_give = 0
+    
+    i = 2
+    while i < len(parts):
+        try:
+            amount = int(parts[i])
+            if i + 1 < len(parts):
+                type_ = parts[i + 1].lower()
+                if type_ in ['coin', 'coins', 'shk']:
+                    coins_to_give = amount
+                    i += 2
+                elif type_ in ['box', 'boxes']:
+                    boxes_to_give = amount
+                    i += 2
+                else:
+                    i += 1
+            else:
+                i += 1
+        except ValueError:
+            i += 1
+
+    if coins_to_give == 0 and boxes_to_give == 0:
+        bot.send_message(msg.chat.id, "❌ Укажи количество коинов или боксов.")
+        return
+
+    # Ищем пользователя
+    target_id = None
+    target_name = None
+
+    if target.startswith('@'):
+        # Поиск по username
+        username = target[1:].lower()
+        for uid, data in users.items():
+            if data.get('username', '').lower() == username:
+                target_id = uid
+                target_name = data.get('first_name', username)
+                break
+    else:
+        # Поиск по ID
+        if target in users:
+            target_id = target
+            target_name = users[target].get('first_name', target)
+
+    if not target_id:
+        bot.send_message(msg.chat.id, f"❌ Пользователь {target} не найден в базе.")
+        return
+
+    # Выдаём
+    user = get_user(target_id)
+    if coins_to_give != 0:
+        user['balance'] += coins_to_give
+    if boxes_to_give != 0:
+        user['opens'] = user.get('opens', 0) + boxes_to_give
+    
+    save_data()
+
+    # Формируем ответ
+    result_parts = []
+    if coins_to_give != 0:
+        result_parts.append(f"{coins_to_give:+d} 💰")
+    if boxes_to_give != 0:
+        result_parts.append(f"{boxes_to_give:+d} 📦")
+    
+    result = " и ".join(result_parts)
+
+    bot.send_message(
+        msg.chat.id,
+        f"✅ Выдано {target_name} ({target}):\n{result}"
+    )
+
+    # Уведомляем пользователя
+    try:
+        bot.send_message(
+            target_id,
+            f"🎁 <b>Тебе начислено:</b>\n{result}",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
 # ====== ЗАПУСК ВЕЧНОГО БОТА ======
 if __name__ == "__main__":
     print("Удаляем webhook...")
