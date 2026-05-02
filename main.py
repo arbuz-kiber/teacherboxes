@@ -11,8 +11,8 @@ TOKEN = "8683812027:AAHj3BWuLj7o5NqntF7l02STco_N2jL6Vvs"
 # ====== НАСТРОЙКИ БОТА ======
 bot = telebot.TeleBot(
     TOKEN,
-    threaded=True,           # Многопоточность
-    num_threads=4,           # Количество потоков
+    threaded=True,
+    num_threads=8,        # Увеличили потоки с 4 до 8
     parse_mode=None
 )
 
@@ -1088,13 +1088,16 @@ if __name__ == "__main__":
     print("Webhook удалён. Бот запущен!")
     while True:
         try:
-            bot.polling(none_stop=True, timeout=30, interval=1)
+            bot.polling(
+                none_stop=True,
+                timeout=20,          # Уменьшили timeout
+                interval=0,          # Убрали задержку между запросами (было 1)
+                long_polling_timeout=20
+            )
         except requests.exceptions.RequestException as e:
             print(f"\n[!] Сетевая ошибка: {e}")
-            print("⏳ Ждём 30 секунд и переподключаемся...")
-            time.sleep(30)
+            time.sleep(15)
         except Exception as e:
             print(f"\n[!] Критическая ошибка: {e}")
-            print("⏳ Ждём 30 секунд и перезапускаем...")
             bot.delete_webhook(drop_pending_updates=True)
-            time.sleep(30)
+            time.sleep(15)
