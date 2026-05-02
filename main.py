@@ -1044,14 +1044,18 @@ def cancel_trade(call):
 
 # ====== ЗАПУСК ВЕЧНОГО БОТА ======
 if __name__ == "__main__":
-    print("Бот запущен...")
+    print("Удаляем webhook...")
+    bot.delete_webhook(drop_pending_updates=True)
+    print("Webhook удалён. Бот запущен!")
     while True:
         try:
             bot.polling(none_stop=True, timeout=30, interval=1)
         except requests.exceptions.RequestException as e:
             print(f"\n[!] Сетевая ошибка: {e}")
             print("⏳ Ждём 30 секунд и переподключаемся...")
-            time.sleep(30)   # Увеличили паузу
+            time.sleep(30)
         except Exception as e:
             print(f"\n[!] Критическая ошибка: {e}")
+            print("⏳ Ждём 30 секунд и перезапускаем...")
+            bot.delete_webhook(drop_pending_updates=True)
             time.sleep(30)
