@@ -1234,6 +1234,84 @@ def give_coins(msg):
     except Exception:
         pass
 
+# ====== СООБЩЕНИЕ РАЗРАБОТЧИКУ ======
+@bot.message_handler(commands=['r'])
+def report_to_dev(msg):
+    uid = str(msg.from_user.id)
+    user = get_user(uid, msg.from_user)
+    
+    # Получаем текст после /r
+    parts = msg.text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        bot.send_message(
+            msg.chat.id,
+            "💡 <b>Предложить идею разработчику</b>\n\n"
+            "Напиши сообщение после команды:\n"
+            "<code>/r Добавьте новые карты!</code>",
+            parse_mode="HTML"
+        )
+        return
+    
+    message_text = parts[1].strip()
+    
+    # Формируем информацию об отправителе
+    sender_name = user.get('first_name', 'Неизвестный')
+    sender_username = f"@{user['username']}" if user.get('username') else "нет username"
+    sender_id = uid
+    
+    # Отправляем разработчику
+    try:
+        bot.send_message(
+            ADMIN_ID,
+            f"💡 <b>Новое предложение</b>\n\n"
+            f"👤 От: {sender_name} ({sender_username})\n"
+            f"🆔 ID: <code>{sender_id}</code>\n\n"
+            f"📝 Сообщение:\n{message_text}",
+            parse_mode="HTML"
+        )
+        
+        # Подтверждение пользователю
+        bot.send_message(
+            msg.chat.id,
+            "✅ Твоё предложение отправлено разработчику!\n"
+            "Спасибо за обратную связь 💙"
+        )
+        
+        print(f"[INFO] Предложение от {sender_name} ({uid}): {message_text[:50]}...")
+        
+    except Exception as e:
+        bot.send_message(msg.chat.id, "❌ Ошибка отправки. Попробуй позже.")
+        print(f"[ERROR] Не удалось отправить предложение: {e}")
+
+# ====== ОТВЕТИТЬ НА ПРЕДЛОЖЕНИЕ ======
+@bot.message_handler(commands=['reply'])
+def reply_to_user(msg):
+    if str(msg.from_user.id) != ADMIN_ID:
+        return
+    
+    # Формат: /reply 123456789 Спасибо за идею!
+    parts = msg.text.split(maxsplit=2)
+    
+    if len(parts) < 3:
+        bot.send_message(
+            msg.chat.id,
+            "Формат: /reply USER_ID текст ответа"
+        )
+        return
+    
+    target_id = parts[1]
+    reply_text = parts[2]
+    
+    try:
+        bot.send_message(
+            target_id,
+            f"💬 <b>Ответ разработчика:</b>\n\n{reply_text}",
+            parse_mode="HTML"
+        )
+        bot.send_message(msg.chat.id, f"✅ Ответ отправлен пользователю {target_id}")
+    except Exception as e:
+        bot.send_message(msg.chat.id, f"❌ Ошибка: {e}")
+
 # ====== ЗАПУСК ======
 if __name__ == "__main__":
     print("Удаляем webhook...")
