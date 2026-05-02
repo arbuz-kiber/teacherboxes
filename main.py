@@ -1,3 +1,5 @@
+# v 2.2
+
 import telebot
 import random
 import time
