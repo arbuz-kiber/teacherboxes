@@ -1042,6 +1042,45 @@ def cancel_trade(call):
     bot.answer_callback_query(call.id)
     close_trade(code, "🚫 Трейд отменён.")
 
+# ====== ADMIN ID ======
+ADMIN_ID = "6933588930"  # Замени на свой Telegram ID
+
+# ====== ГЛОБАЛЬНОЕ СООБЩЕНИЕ ======
+@bot.message_handler(commands=['global'])
+def global_message(msg):
+    if str(msg.from_user.id) != ADMIN_ID:
+        bot.send_message(msg.chat.id, "❌ У тебя нет прав для этой команды.")
+        return
+
+    # Получаем текст после /global
+    parts = msg.text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        bot.send_message(msg.chat.id, "❌ Напиши сообщение после команды.\nПример: /global Привет всем!")
+        return
+
+    text = parts[1].strip()
+    total = len(users)
+    success = 0
+    failed = 0
+
+    bot.send_message(msg.chat.id, f"📤 Отправляю сообщение {total} пользователям...")
+
+    for uid in list(users.keys()):
+        try:
+            bot.send_message(uid, f"📢 <b>Сообщение от администратора:</b>\n\n{text}", parse_mode="HTML")
+            success += 1
+            time.sleep(0.05)  # Защита от флуда Telegram API
+        except Exception as e:
+            print(f"[WARN] Не удалось отправить {uid}: {e}")
+            failed += 1
+
+    bot.send_message(
+        msg.chat.id,
+        f"✅ Рассылка завершена!\n\n"
+        f"📨 Отправлено: {success}\n"
+        f"❌ Не доставлено: {failed}"
+    )
+
 # ====== ЗАПУСК ВЕЧНОГО БОТА ======
 if __name__ == "__main__":
     print("Удаляем webhook...")
