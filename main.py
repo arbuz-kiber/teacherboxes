@@ -1,4 +1,4 @@
-# v 2.3
+# v 3.0 — PostgreSQL
 
 import telebot
 import random
@@ -7,60 +7,133 @@ import json
 import os
 import threading
 import requests
+import psycopg2
+from psycopg2.extras import Json
+
+# ====== ОТКЛЮЧЕНИЕ ПРОКСИ ======
+for env_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+    os.environ.pop(env_var, None)
+telebot.apihelper.proxy = {}
 
 TOKEN = "8683812027:AAHj3BWuLj7o5NqntF7l02STco_N2jL6Vvs"
+ADMIN_ID = "6933588930"
 
 # ====== НАСТРОЙКИ БОТА ======
 bot = telebot.TeleBot(
     TOKEN,
     threaded=True,
-    num_threads=8,        # Увеличили потоки с 4 до 8
+    num_threads=8,
     parse_mode=None
 )
-
-DATA_FILE = "users.json"
 
 # ====== ТРЕЙД-КОМНАТЫ ======
 trade_rooms = {}
 pending_qty = {}
 card_menus = {}
 
-# ====== Блокировка для потокобезопасного сохранения ======
+# ====== БЛОКИРОВКА ======
 data_lock = threading.Lock()
 _save_scheduled = False
 
-# ====== НАСТРОЙКА ПУТЕЙ К ДАННЫМ ======
-DATA_DIR = os.environ.get('DATA_PATH', '.')
-DATA_FILE = os.path.join(DATA_DIR, "users.json")
+# ====== POSTGRESQL ======
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# Создаём папку если её нет
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        print(f"[ERROR] Не удалось подключиться к БД: {e}")
+        return None
+
+def init_db():
+    if not DATABASE_URL:
+        print("[INFO] DATABASE_URL не найден, используем локальный JSON")
+        return
+    conn = get_db_connection()
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS bot_data (
+                key TEXT PRIMARY KEY,
+                value JSONB NOT NULL DEFAULT '{}'
+            )
+        """)
+        cur.execute("""
+            INSERT INTO bot_data (key, value)
+            VALUES ('users', '{}')
+            ON CONFLICT (key) DO NOTHING
+        """)
+        conn.commit()
+        print("[OK] База данных инициализирована")
+    except Exception as e:
+        print(f"[ERROR] Ошибка инициализации БД: {e}")
+    finally:
+        conn.close()
 
 def load_data():
-    if not os.path.exists(DATA_FILE):
+    if not DATABASE_URL:
+        if os.path.exists("users.json"):
+            try:
+                with open("users.json", "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    print(f"[OK] Загружено {len(data)} пользователей из users.json")
+                    return data
+            except Exception as e:
+                print(f"[ERROR] Ошибка загрузки JSON: {e}")
+        return {}
+
+    conn = get_db_connection()
+    if not conn:
         return {}
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        print(f"[WARN] Не удалось загрузить {DATA_FILE}, создаём новый")
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM bot_data WHERE key = 'users'")
+        row = cur.fetchone()
+        if row:
+            data = row[0]
+            print(f"[OK] Загружено {len(data)} пользователей из PostgreSQL")
+            return data
         return {}
+    except Exception as e:
+        print(f"[ERROR] Ошибка загрузки из БД: {e}")
+        return {}
+    finally:
+        conn.close()
 
 def save_data():
-    """Потокобезопасное сохранение."""
     with data_lock:
+        if not DATABASE_URL:
+            try:
+                tmp_file = "users.json.tmp"
+                with open(tmp_file, "w", encoding="utf-8") as f:
+                    json.dump(users, f, indent=4, ensure_ascii=False)
+                os.replace(tmp_file, "users.json")
+                print(f"[OK] Сохранено {len(users)} пользователей в users.json")
+            except IOError as e:
+                print(f"[ERROR] Ошибка сохранения JSON: {e}")
+            return
+
+        conn = get_db_connection()
+        if not conn:
+            return
         try:
-            tmp_file = DATA_FILE + ".tmp"
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(users, f, indent=4, ensure_ascii=False)
-            os.replace(tmp_file, DATA_FILE)
-            print(f"[OK] Данные сохранены в {DATA_FILE}")
-        except IOError as e:
-            print(f"[ERROR] Не удалось сохранить данные: {e}")
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO bot_data (key, value)
+                VALUES ('users', %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            """, (Json(users),))
+            conn.commit()
+            print(f"[OK] Сохранено {len(users)} пользователей в PostgreSQL")
+        except Exception as e:
+            print(f"[ERROR] Ошибка сохранения в БД: {e}")
+        finally:
+            conn.close()
 
 def schedule_save():
-    """Отложенное сохранение — не чаще раза в 3 секунды."""
     global _save_scheduled
     if not _save_scheduled:
         _save_scheduled = True
@@ -71,6 +144,8 @@ def schedule_save():
             _save_scheduled = False
         threading.Thread(target=_do_save, daemon=True).start()
 
+# ====== ИНИЦИАЛИЗАЦИЯ ======
+init_db()
 users = load_data()
 
 def fix_inventory(user):
@@ -106,7 +181,6 @@ def get_user(user_id, tg_user=None):
             u["first_name"] = new_first
             changed = True
 
-    # Добавляем отсутствующие поля
     for field, default in [("username", None), ("first_name", None), ("opens", 0)]:
         if field not in u:
             u[field] = default
@@ -114,7 +188,6 @@ def get_user(user_id, tg_user=None):
 
     fix_inventory(u)
 
-    # Сохраняем только если были изменения
     if changed:
         schedule_save()
 
@@ -153,41 +226,41 @@ cards = [
 ]
 
 CARD_GENDER = {
-    "ирина владимировна":   "f",
-    "елена олеговна":       "f",
-    "сергей коваленко":     "m",
-    "юрий николаевич":      "m",
-    "виталий андреевич":    "m",
-    "александр анатольевич":"m",
-    "анна николаевна":      "f",
-    "богдашевская":         "f",
-    "овсянников":           "m",
-    "алена игоревна":       "f",
-    "ольга виталиевна":     "f",
-    "наталия валериевна":   "f",
-    "оксана ивановна":      "f",
-    "виктор викентиевич":   "m",
-    "вера федоровна":       "f",
-    "татьяна леонидовна":   "f",
-    "людмила":              "f",
-    "мунтяну":              "f",
-    "ирина григориевна":    "f",
-    "наталия технолоджия":  "f",
-    "барабаш":              "m",
-    "дмитро":               "m",
-    "брудин":               "m",
-    "БudkО":                "f",
+    "ирина владимировна":    "f",
+    "елена олеговна":        "f",
+    "сергей коваленко":      "m",
+    "юрий николаевич":       "m",
+    "виталий андреевич":     "m",
+    "александр анатольевич": "m",
+    "анна николаевна":       "f",
+    "богдашевская":          "f",
+    "овсянников":            "m",
+    "алена игоревна":        "f",
+    "ольга виталиевна":      "f",
+    "наталия валериевна":    "f",
+    "оксана ивановна":       "f",
+    "виктор викентиевич":    "m",
+    "вера федоровна":        "f",
+    "татьяна леонидовна":    "f",
+    "людмила":               "f",
+    "мунтяну":               "f",
+    "ирина григориевна":     "f",
+    "наталия технолоджия":   "f",
+    "барабаш":               "m",
+    "дмитро":                "m",
+    "брудин":                "m",
+    "БudkО":                 "f",
 }
 
 RARITY_NAMES_GENDER = {
-    "common":    {"m": "Обычный",      "f": "Обычная"},
-    "rare":      {"m": "Редкий",       "f": "Редкая"},
-    "epic":      {"m": "Эпический",    "f": "Эпическая"},
-    "mythic":    {"m": "Мифический",   "f": "Мифическая"},
-    "legendary": {"m": "Легендарный",  "f": "Легендарная"},
-    "exotic":    {"m": "Экзотический", "f": "Экзотическая"},
-    "secret":    {"m": "Секретный",    "f": "Секретная"},
-    "glitch":    {"m": "ГЛИТЧ",        "f": "ГЛИТЧ"},
+    "common":    {"m": "Обычный",       "f": "Обычная"},
+    "rare":      {"m": "Редкий",        "f": "Редкая"},
+    "epic":      {"m": "Эпический",     "f": "Эпическая"},
+    "mythic":    {"m": "Мифический",    "f": "Мифическая"},
+    "legendary": {"m": "Легендарный",   "f": "Легендарная"},
+    "exotic":    {"m": "Экзотический",  "f": "Экзотическая"},
+    "secret":    {"m": "Секретный",     "f": "Секретная"},
+    "glitch":    {"m": "ГЛИТЧ",         "f": "ГЛИТЧ"},
 }
 
 RARITY_ORDER = {
@@ -198,19 +271,30 @@ RARITY_ORDER = {
 CARD_TYPE_ORDER = {"normal": 0, "gold": 1, "rainbow": 2}
 
 RARITY_EMOJI = {
-    "common": "⚪", "rare": "🔵", "epic": "🟣", "mythic": "🔴",
-    "legendary": "🟡", "exotic": "🟠", "secret": "💎", "glitch": "👾",
+    "common":    "⚪",
+    "rare":      "🔵",
+    "epic":      "🟣",
+    "mythic":    "🔴",
+    "legendary": "🟡",
+    "exotic":    "🟠",
+    "secret":    "💎",
+    "glitch":    "👾",
 }
 
 RARITY_NAMES = {
-    "common": "Обычная", "rare": "Редкая", "epic": "Эпик",
-    "mythic": "Мифик", "legendary": "Легендарная",
-    "exotic": "Экзотик", "secret": "Секретная", "glitch": "ГЛИТЧ",
+    "common":    "Обычная",
+    "rare":      "Редкая",
+    "epic":      "Эпик",
+    "mythic":    "Мифик",
+    "legendary": "Легендарная",
+    "exotic":    "Экзотик",
+    "secret":    "Секретная",
+    "glitch":    "ГЛИТЧ",
 }
 
 COOLDOWN = 3
 
-# ====== Предварительно вычисляем пул карт (один раз!) ======
+# ====== ПУЛ КАРТ ======
 _card_pool = []
 _pool_total = 0
 
@@ -270,18 +354,14 @@ def format_card_name(card_key, rarity_type):
     return f"{prefix} {base}" if prefix else base.capitalize()
 
 def get_random_card():
-    """Использует предвычисленный пул — работает быстро."""
     r = random.uniform(0, _pool_total)
     upto = 0.0
     for c in _card_pool:
         upto += c["weight"]
         if upto >= r:
             result = dict(c)
-            result["reward"] = random.randint(
-                int(c["min_reward"]), int(c["max_reward"])
-            )
+            result["reward"] = random.randint(int(c["min_reward"]), int(c["max_reward"]))
             return result
-    # Запасной вариант
     c = _card_pool[-1]
     result = dict(c)
     result["reward"] = random.randint(int(c["min_reward"]), int(c["max_reward"]))
@@ -343,18 +423,10 @@ def inventory_keyboard(sort_by="rarity_desc"):
 
 def leaderboard_text(sort_by="balance"):
     if sort_by == "balance":
-        ranked = sorted(
-            users.items(),
-            key=lambda x: x[1].get("balance", 0),
-            reverse=True
-        )
+        ranked = sorted(users.items(), key=lambda x: x[1].get("balance", 0), reverse=True)
         title = "💰 Топ по шейк-коинам"
     else:
-        ranked = sorted(
-            users.items(),
-            key=lambda x: x[1].get("opens", 0),
-            reverse=True
-        )
+        ranked = sorted(users.items(), key=lambda x: x[1].get("opens", 0), reverse=True)
         title = "📦 Топ по открытым боксам"
 
     medals = ["🥇", "🥈", "🥉"]
@@ -403,11 +475,7 @@ def main_menu():
 @bot.message_handler(commands=['start'])
 def start(msg):
     get_user(msg.from_user.id, msg.from_user)
-    bot.send_message(
-        msg.chat.id,
-        "Добро пожаловать в Тичер Боксы!",
-        reply_markup=main_menu()
-    )
+    bot.send_message(msg.chat.id, "Добро пожаловать в Тичер Боксы!", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda m: m.text == "💰 Баланс")
 def balance(msg):
@@ -504,7 +572,6 @@ def open_box(msg):
     user["balance"] += card["reward"]
     schedule_save()
 
-    # Определяем тип карты
     rarity_type = (
         "rainbow" if "-rainbow" in card["name"]
         else "gold" if "-gold" in card["name"]
@@ -512,12 +579,12 @@ def open_box(msg):
     )
 
     base_name = card["name"].split("-")[0]
-    rarity    = get_card_rarity(card["name"])
-    gender    = CARD_GENDER.get(base_name, "m")
+    rarity = get_card_rarity(card["name"])
+    gender = CARD_GENDER.get(base_name, "m")
 
     clean_name = format_card_name(card["name"], rarity_type)
-    emoji      = RARITY_EMOJI.get(rarity, "⚪")
-    rname      = RARITY_NAMES_GENDER.get(rarity, {}).get(gender, rarity)
+    emoji = RARITY_EMOJI.get(rarity, "⚪")
+    rname = RARITY_NAMES_GENDER.get(rarity, {}).get(gender, rarity)
 
     text = f"{emoji} <b>{clean_name}</b>\n<i>{rname}</i>\n\n+{card['reward']} 💰"
 
@@ -527,9 +594,7 @@ def open_box(msg):
             f"cards/{base_name}-{rarity}.png",
         ]
     else:
-        img_paths = [
-            f"cards/{base_name}-{rarity}.png",
-        ]
+        img_paths = [f"cards/{base_name}-{rarity}.png"]
 
     sent = False
     for img_path in img_paths:
@@ -545,34 +610,27 @@ def open_box(msg):
     if not sent:
         bot.send_message(msg.chat.id, text, parse_mode="HTML")
 
+@bot.message_handler(func=lambda m: users.get(str(m.from_user.id), {}).get("captcha") is True)
+def captcha_check(msg):
+    user = get_user(msg.from_user.id, msg.from_user)
+    if msg.text and msg.text.lower() == "я не робот":
+        user["captcha"] = False
+        schedule_save()
+        bot.send_message(msg.chat.id, "✅ Проверка пройдена!")
+    else:
+        bot.send_message(msg.chat.id, "❌ Напиши: Я не робот")
+
 @bot.message_handler(func=lambda m: m.text == "📊 Редкости")
 def show_rarities(msg):
     get_user(msg.from_user.id, msg.from_user)
-
     lines = ["🎴 <b>Редкости карт:</b>\n"]
-
-    rarity_info = [
-        ("common",    ""),
-        ("rare",      ""),
-        ("epic",      ""),
-        ("mythic",    ""),
-        ("legendary", ""),
-        ("exotic",    ""),
-        ("secret",    ""),
-        ("glitch",    ""),
-    ]
-
-    for rarity, _ in rarity_info:
+    for rarity in ["common", "rare", "epic", "mythic", "legendary", "exotic", "secret", "glitch"]:
         emoji = RARITY_EMOJI[rarity]
         rname = RARITY_NAMES[rarity]
         lines.append(f"{emoji} <b>{rname}</b>")
-
     lines.append("\n🌕 <b>Золотая</b> — шанс в 5 раз меньше обычной")
     lines.append("🌈 <b>Радужная</b> — шанс в 10 раз меньше обычной")
-
     bot.send_message(msg.chat.id, "\n".join(lines), parse_mode="HTML")
-
-# ====== КАНАЛ ======
 
 @bot.message_handler(func=lambda m: m.text == "📢 Канал")
 def show_channel(msg):
@@ -588,16 +646,6 @@ def show_channel(msg):
         reply_markup=kb,
         parse_mode="HTML"
     )
-
-@bot.message_handler(func=lambda m: users.get(str(m.from_user.id), {}).get("captcha") is True)
-def captcha_check(msg):
-    user = get_user(msg.from_user.id, msg.from_user)
-    if msg.text and msg.text.lower() == "я не робот":
-        user["captcha"] = False
-        schedule_save()
-        bot.send_message(msg.chat.id, "✅ Проверка пройдена!")
-    else:
-        bot.send_message(msg.chat.id, "❌ Напиши: Я не робот")
 
 # ══════════════════════════════════════════════
 #               ТОРГОВЛЯ
@@ -1053,9 +1101,6 @@ def cancel_trade(call):
     bot.answer_callback_query(call.id)
     close_trade(code, "🚫 Трейд отменён.")
 
-# ====== ADMIN ID ======
-ADMIN_ID = "6933588930"  # Замени на свой Telegram ID
-
 # ====== ГЛОБАЛЬНОЕ СООБЩЕНИЕ ======
 @bot.message_handler(commands=['global'])
 def global_message(msg):
@@ -1063,7 +1108,6 @@ def global_message(msg):
         bot.send_message(msg.chat.id, "❌ У тебя нет прав для этой команды.")
         return
 
-    # Получаем текст после /global
     parts = msg.text.split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
         bot.send_message(msg.chat.id, "❌ Напиши сообщение после команды.\nПример: /global Привет всем!")
@@ -1078,9 +1122,13 @@ def global_message(msg):
 
     for uid in list(users.keys()):
         try:
-            bot.send_message(uid, f"📢 <b>Сообщение от администратора:</b>\n\n{text}", parse_mode="HTML")
+            bot.send_message(
+                uid,
+                f"📢 <b>Сообщение от администратора:</b>\n\n{text}",
+                parse_mode="HTML"
+            )
             success += 1
-            time.sleep(0.05)  # Защита от флуда Telegram API
+            time.sleep(0.05)
         except Exception as e:
             print(f"[WARN] Не удалось отправить {uid}: {e}")
             failed += 1
@@ -1092,17 +1140,15 @@ def global_message(msg):
         f"❌ Не доставлено: {failed}"
     )
 
-# ====== ВЫДАТЬ КОИНЫ/БОКСЫ ПОЛЬЗОВАТЕЛЮ ======
+# ====== ВЫДАТЬ КОИНЫ/БОКСЫ ======
 @bot.message_handler(commands=['give'])
 def give_coins(msg):
     if str(msg.from_user.id) != ADMIN_ID:
         bot.send_message(msg.chat.id, "❌ У тебя нет прав для этой команды.")
         return
 
-    # Формат: /give @username 1000 coins
-    # или: /give 123456789 5 boxes
     parts = msg.text.split()
-    
+
     if len(parts) < 4:
         bot.send_message(
             msg.chat.id,
@@ -1115,12 +1161,10 @@ def give_coins(msg):
         )
         return
 
-    target = parts[1]  # @username или ID
-    
-    # Парсим параметры (coins/boxes могут быть в любом порядке)
+    target = parts[1]
     coins_to_give = 0
     boxes_to_give = 0
-    
+
     i = 2
     while i < len(parts):
         try:
@@ -1144,20 +1188,17 @@ def give_coins(msg):
         bot.send_message(msg.chat.id, "❌ Укажи количество коинов или боксов.")
         return
 
-    # Ищем пользователя
     target_id = None
     target_name = None
 
     if target.startswith('@'):
-        # Поиск по username
         username = target[1:].lower()
         for uid, data in users.items():
-            if data.get('username', '').lower() == username:
+            if (data.get('username') or '').lower() == username:
                 target_id = uid
                 target_name = data.get('first_name', username)
                 break
     else:
-        # Поиск по ID
         if target in users:
             target_id = target
             target_name = users[target].get('first_name', target)
@@ -1166,30 +1207,24 @@ def give_coins(msg):
         bot.send_message(msg.chat.id, f"❌ Пользователь {target} не найден в базе.")
         return
 
-    # Выдаём
     user = get_user(target_id)
     if coins_to_give != 0:
         user['balance'] += coins_to_give
     if boxes_to_give != 0:
         user['opens'] = user.get('opens', 0) + boxes_to_give
-    
+
     save_data()
 
-    # Формируем ответ
     result_parts = []
     if coins_to_give != 0:
         result_parts.append(f"{coins_to_give:+d} 💰")
     if boxes_to_give != 0:
         result_parts.append(f"{boxes_to_give:+d} 📦")
-    
+
     result = " и ".join(result_parts)
 
-    bot.send_message(
-        msg.chat.id,
-        f"✅ Выдано {target_name} ({target}):\n{result}"
-    )
+    bot.send_message(msg.chat.id, f"✅ Выдано {target_name} ({target}):\n{result}")
 
-    # Уведомляем пользователя
     try:
         bot.send_message(
             target_id,
@@ -1199,7 +1234,7 @@ def give_coins(msg):
     except Exception:
         pass
 
-# ====== ЗАПУСК ВЕЧНОГО БОТА ======
+# ====== ЗАПУСК ======
 if __name__ == "__main__":
     print("Удаляем webhook...")
     bot.delete_webhook(drop_pending_updates=True)
@@ -1208,8 +1243,8 @@ if __name__ == "__main__":
         try:
             bot.polling(
                 none_stop=True,
-                timeout=20,          # Уменьшили timeout
-                interval=0,          # Убрали задержку между запросами (было 1)
+                timeout=20,
+                interval=0,
                 long_polling_timeout=20
             )
         except requests.exceptions.RequestException as e:
