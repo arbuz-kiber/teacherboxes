@@ -101,47 +101,163 @@ shop_items = {
     }
 }
 
+# ====== МАГАЗИН ======
+next_restock_time = 0  # ← НОВОЕ: время следующего рестока
+
 def restock_shop():
     """Обновляет ассортимент магазина."""
     global shop_items
     with shop_lock:
-        # Выбираем 2-4 случайных товара
         available_items = list(shop_items.keys())
         random.shuffle(available_items)
-        
-        # Обнуляем весь сток
+
         for item_id in shop_items:
             shop_items[item_id]["stock"] = 0
-        
-        # Добавляем товары с учетом вероятности
+
         num_items = random.randint(2, 4)
         restocked = []
-        
+
         for item_id in available_items:
             if len(restocked) >= num_items:
                 break
-            
             item = shop_items[item_id]
             if random.random() < item["spawn_chance"]:
                 stock = random.randint(1, 3)
                 shop_items[item_id]["stock"] = stock
                 restocked.append(f"{item['name']} x{stock}")
-        
+
         print(f"[SHOP] Рестокнуто: {', '.join(restocked) if restocked else 'пусто'}")
+
 
 def shop_restock_loop():
     """Фоновый поток для рестока магазина."""
-    time.sleep(10)  # Задержка при старте
-    restock_shop()  # Первый ресток
-    
+    global next_restock_time  # ← НОВОЕ
+
+    time.sleep(10)
+    restock_shop()
+
     while True:
-        delay = random.randint(20 * 60, 40 * 60)  # 20-40 минут
+        delay = random.randint(20 * 60, 40 * 60)
+        next_restock_time = time.time() + delay  # ← НОВОЕ: запоминаем время
         print(f"[SHOP] Следующий ресток через {delay//60} минут")
         time.sleep(delay)
         restock_shop()
 
-# Запускаем поток рестока
+
 threading.Thread(target=shop_restock_loop, daemon=True).start()
+
+def format_restock_timer():
+    """Возвращает строку с временем до следующего рестока."""
+    global next_restock_time
+
+    if next_restock_time == 0:
+        return "⏳ Скоро..."
+
+    remaining = int(next_restock_time - time.time())
+
+    if remaining <= 0:
+        return "🔄 Ресток скоро!"
+
+    minutes = remaining // 60
+    seconds = remaining % 60
+
+    if minutes >= 60:
+        hours = minutes // 60
+        minutes = minutes % 60
+        return f"⏱ Следующий ресток через {hours}ч {minutes}мин"
+    elif minutes > 0:
+        return f"⏱ Следующий ресток через {minutes}мин {seconds}сек"
+    else:
+        return f"⏱ Следующий ресток через {seconds}сек"
+
+def build_shop_message(user):
+    """Собирает текст и клавиатуру магазина."""
+    boosts = get_active_boosts(user)
+    now = time.time()
+
+    lines = ["🛒 <b>МАГАЗИН БУСТОВ</b>\n"]
+
+    # Активные бусты пользователя
+    active = []
+
+    if boosts.get("luck_multiplier", 1) > 1:
+        remaining = int((boosts.get("luck_expires", 0) - now) / 60)
+        active.append(f"⚡ {boosts['luck_multiplier']}x удача ({remaining} мин)")
+
+    if boosts.get("coins_multiplier", 1) > 1:
+        remaining = int((boosts.get("coins_expires", 0) - now) / 60)
+        active.append(f"💰 {boosts['coins_multiplier']}x коины ({remaining} мин)")
+
+    if boosts.get("nextbox_multiplier", 1) > 1:
+        active.append(f"🎁 {boosts['nextbox_multiplier']}x следующий бокс")
+
+    if active:
+        lines.append("🔥 <b>Активные бусты:</b>")
+        for a in active:
+            lines.append(f"  {a}")
+        lines.append("")
+
+    # Товары в магазине
+    with shop_lock:
+        available = [(k, v) for k, v in shop_items.items() if v["stock"] > 0]
+
+    if available:
+        lines.append("📦 <b>В наличии:</b>\n")
+        for item_id, item in available:
+            lines.append(
+                f"{item['emoji']} <b>{item['name']}</b>\n"
+                f"  💰 {item['price']} SHK  |  В наличии: {item['stock']} шт.\n"
+            )
+    else:
+        lines.append("❌ Магазин пуст.\n")
+
+    # ← НОВОЕ: таймер рестока
+    lines.append(f"\n{format_restock_timer()}")
+
+    # Клавиатура
+    kb = telebot.types.InlineKeyboardMarkup(row_width=2)
+    for item_id, item in available:
+        kb.add(telebot.types.InlineKeyboardButton(
+            f"{item['emoji']} Купить {item['name']}",
+            callback_data=f"buy_{item_id}"
+        ))
+    kb.add(telebot.types.InlineKeyboardButton(
+        "🔄 Обновить", callback_data="shop_refresh"
+    ))
+
+    return "\n".join(lines), kb
+
+
+@bot.message_handler(func=lambda m: m.text == "🛒 Магазин")
+def show_shop(msg):
+    user = get_user(msg.from_user.id, msg.from_user)
+    text, kb = build_shop_message(user)
+    bot.send_message(msg.chat.id, text, reply_markup=kb, parse_mode="HTML")
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "shop_refresh")
+def shop_refresh(call):
+    user = get_user(call.from_user.id, call.from_user)
+    text, kb = build_shop_message(user)
+    try:
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+    bot.answer_callback_query(call.id, "🔄 Обновлено")
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "goto_shop")
+def goto_shop(call):
+    bot.answer_callback_query(call.id)
+    user = get_user(call.from_user.id, call.from_user)
+    text, kb = build_shop_message(user)
+    bot.send_message(call.message.chat.id, text, reply_markup=kb, parse_mode="HTML")
 
 # ====== POSTGRESQL ======
 DATABASE_URL = os.environ.get('DATABASE_URL')
@@ -269,6 +385,7 @@ def get_user(user_id, tg_user=None):
         users[user_id] = {
             "balance": 0,
             "inventory": {},
+            "boost_inventory": {},  # ← НОВОЕ: купленные но неактивированные бусты
             "last_open": 0,
             "opens": 0,
             "captcha": False,
@@ -299,7 +416,6 @@ def get_user(user_id, tg_user=None):
             u[field] = default
             changed = True
 
-    # Добавляем бусты если нет
     if "boosts" not in u:
         u["boosts"] = {
             "luck_multiplier": 1,
@@ -310,13 +426,18 @@ def get_user(user_id, tg_user=None):
         }
         changed = True
 
+    # ← НОВОЕ: добавляем boost_inventory если нет
+    if "boost_inventory" not in u:
+        u["boost_inventory"] = {}
+        changed = True
+
     fix_inventory(u)
 
     if changed:
         schedule_save()
 
     return u
-
+    
 def get_active_boosts(user):
     """Проверяет активные бусты и очищает истекшие."""
     boosts = user.get("boosts", {})
@@ -635,9 +756,9 @@ def main_menu():
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("📦 Открыть бокс")
     markup.add("💰 Баланс", "🎒 Инвентарь")
-    markup.add("🛒 Магазин", "🏠 Трейд")
-    markup.add("🏆 Лидеры", "📊 Редкости")
-    markup.add("📢 Канал")
+    markup.add("🛒 Магазин", "🧪 Бусты")       # ← ИЗМЕНЕНО
+    markup.add("🏠 Трейд", "🏆 Лидеры")
+    markup.add("📊 Редкости", "📢 Канал")
     return markup
 
 # ====== МАГАЗИН ======
@@ -770,41 +891,39 @@ def buy_item(call):
     item_id = call.data.split("_", 1)[1]
     uid = str(call.from_user.id)
     user = get_user(uid, call.from_user)
-    
+
     with shop_lock:
         if item_id not in shop_items:
             bot.answer_callback_query(call.id, "❌ Товар не найден")
             return
-        
+
         item = shop_items[item_id]
-        
+
         if item["stock"] <= 0:
             bot.answer_callback_query(call.id, "❌ Нет в наличии")
             return
-        
+
         if user["balance"] < item["price"]:
-            bot.answer_callback_query(call.id, f"❌ Недостаточно коинов (нужно {item['price']})")
+            bot.answer_callback_query(
+                call.id,
+                f"❌ Недостаточно коинов (нужно {item['price']})"
+            )
             return
-        
-        # Покупка
+
+        # Покупка — кладём в boost_inventory, НЕ активируем сразу
         user["balance"] -= item["price"]
         item["stock"] -= 1
-        
-        boosts = user["boosts"]
-        boost_type = item["type"]
-        
-        if boost_type == "luck":
-            boosts["luck_multiplier"] = item["multiplier"]
-            boosts["luck_expires"] = time.time() + item["duration"]
-        elif boost_type == "coins":
-            boosts["coins_multiplier"] = item["multiplier"]
-            boosts["coins_expires"] = time.time() + item["duration"]
-        elif boost_type == "nextbox":
-            boosts["nextbox_multiplier"] = item["multiplier"]
-        
+
+        boost_inv = user.setdefault("boost_inventory", {})
+        boost_inv[item_id] = boost_inv.get(item_id, 0) + 1
+
         schedule_save()
-    
-    bot.answer_callback_query(call.id, f"✅ Куплено: {item['name']}")
+
+    bot.answer_callback_query(
+        call.id,
+        f"✅ {item['name']} добавлен в инвентарь бустов!"
+    )
+    # Показываем обновлённый магазин
     shop_refresh(call)
 
 # ====== ОБРАБОТЧИКИ ======
@@ -1708,6 +1827,265 @@ def reply_to_user(msg):
         bot.send_message(msg.chat.id, f"✅ Ответ отправлен пользователю {target_id}")
     except Exception as e:
         bot.send_message(msg.chat.id, f"❌ Ошибка: {e}")
+
+# ====== ИНВЕНТАРЬ БУСТОВ ======
+
+def boost_inventory_text(user):
+    """Формирует текст инвентаря бустов."""
+    boost_inv = user.get("boost_inventory", {})
+    boosts = get_active_boosts(user)
+    now = time.time()
+
+    lines = ["🧪 <b>ИНВЕНТАРЬ БУСТОВ</b>\n"]
+
+    # Активные бусты
+    active = []
+    if boosts.get("luck_multiplier", 1) > 1:
+        remaining = int((boosts.get("luck_expires", 0) - now) / 60)
+        active.append(f"⚡ {boosts['luck_multiplier']}x удача — {remaining} мин.")
+
+    if boosts.get("coins_multiplier", 1) > 1:
+        remaining = int((boosts.get("coins_expires", 0) - now) / 60)
+        active.append(f"💰 {boosts['coins_multiplier']}x коины — {remaining} мин.")
+
+    if boosts.get("nextbox_multiplier", 1) > 1:
+        active.append(f"🎁 {boosts['nextbox_multiplier']}x следующий бокс")
+
+    if active:
+        lines.append("🔥 <b>Сейчас активно:</b>")
+        for a in active:
+            lines.append(f"  ✅ {a}")
+        lines.append("")
+
+    # Купленные бусты
+    if not boost_inv:
+        lines.append("📭 Нет купленных бустов.\n\nКупи в 🛒 Магазине!")
+    else:
+        lines.append("📦 <b>Доступно для активации:</b>\n")
+        for item_id, count in boost_inv.items():
+            if item_id in shop_items:
+                item = shop_items[item_id]
+                lines.append(
+                    f"{item['emoji']} <b>{item['name']}</b> — {count} шт."
+                )
+
+    return "\n".join(lines)
+
+
+def boost_inventory_keyboard(user):
+    """Клавиатура инвентаря бустов с кнопками активации."""
+    boost_inv = user.get("boost_inventory", {})
+    kb = telebot.types.InlineKeyboardMarkup(row_width=1)
+
+    if boost_inv:
+        for item_id, count in boost_inv.items():
+            if item_id in shop_items and count > 0:
+                item = shop_items[item_id]
+                kb.add(telebot.types.InlineKeyboardButton(
+                    f"▶️ Активировать {item['emoji']} {item['name']} (×{count})",
+                    callback_data=f"activate_{item_id}"
+                ))
+
+    kb.add(telebot.types.InlineKeyboardButton(
+        "🛒 В магазин", callback_data="goto_shop"
+    ))
+    kb.add(telebot.types.InlineKeyboardButton(
+        "🔄 Обновить", callback_data="boostinv_refresh"
+    ))
+    return kb
+
+
+@bot.message_handler(func=lambda m: m.text == "🧪 Бусты")
+def show_boost_inventory(msg):
+    user = get_user(msg.from_user.id, msg.from_user)
+    get_active_boosts(user)  # чистим истёкшие
+
+    bot.send_message(
+        msg.chat.id,
+        boost_inventory_text(user),
+        reply_markup=boost_inventory_keyboard(user),
+        parse_mode="HTML"
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "boostinv_refresh")
+def boostinv_refresh(call):
+    user = get_user(call.from_user.id, call.from_user)
+    get_active_boosts(user)
+
+    try:
+        bot.edit_message_text(
+            boost_inventory_text(user),
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=boost_inventory_keyboard(user),
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+    bot.answer_callback_query(call.id, "🔄 Обновлено")
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "goto_shop")
+def goto_shop(call):
+    bot.answer_callback_query(call.id)
+    # Имитируем нажатие на магазин
+    user = get_user(call.from_user.id, call.from_user)
+    boosts = get_active_boosts(user)
+
+    lines = ["🛒 <b>МАГАЗИН БУСТОВ</b>\n"]
+    now = time.time()
+    active = []
+
+    if boosts.get("luck_multiplier", 1) > 1:
+        remaining = int((boosts.get("luck_expires", 0) - now) / 60)
+        active.append(f"⚡ {boosts['luck_multiplier']}x удача ({remaining} мин)")
+
+    if boosts.get("coins_multiplier", 1) > 1:
+        remaining = int((boosts.get("coins_expires", 0) - now) / 60)
+        active.append(f"💰 {boosts['coins_multiplier']}x коины ({remaining} мин)")
+
+    if boosts.get("nextbox_multiplier", 1) > 1:
+        active.append(f"🎁 {boosts['nextbox_multiplier']}x следующий бокс")
+
+    if active:
+        lines.append("🔥 <b>Активные бусты:</b>")
+        for a in active:
+            lines.append(f"  {a}")
+        lines.append("")
+
+    with shop_lock:
+        available = [(k, v) for k, v in shop_items.items() if v["stock"] > 0]
+
+    if available:
+        lines.append("📦 <b>В наличии:</b>\n")
+        for item_id, item in available:
+            lines.append(
+                f"{item['emoji']} <b>{item['name']}</b>\n"
+                f"  💰 {item['price']} SHK  |  В наличии: {item['stock']} шт.\n"
+            )
+    else:
+        lines.append("❌ Магазин пуст. Ждём рестока...")
+
+    kb = telebot.types.InlineKeyboardMarkup(row_width=2)
+    for item_id, item in available:
+        kb.add(telebot.types.InlineKeyboardButton(
+            f"{item['emoji']} Купить {item['name']}",
+            callback_data=f"buy_{item_id}"
+        ))
+    kb.add(telebot.types.InlineKeyboardButton(
+        "🔄 Обновить", callback_data="shop_refresh"
+    ))
+
+    bot.send_message(
+        call.message.chat.id,
+        "\n".join(lines),
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("activate_"))
+def activate_boost(call):
+    item_id = call.data.split("_", 1)[1]
+    uid = str(call.from_user.id)
+    user = get_user(uid, call.from_user)
+    boosts = get_active_boosts(user)
+    boost_inv = user.get("boost_inventory", {})
+
+    # Проверяем наличие в инвентаре
+    if boost_inv.get(item_id, 0) <= 0:
+        bot.answer_callback_query(call.id, "❌ Этого буста нет в инвентаре")
+        return
+
+    if item_id not in shop_items:
+        bot.answer_callback_query(call.id, "❌ Неизвестный буст")
+        return
+
+    item = shop_items[item_id]
+    boost_type = item["type"]
+    now = time.time()
+
+    # Проверяем не активен ли уже такой буст
+    if boost_type == "luck" and boosts.get("luck_multiplier", 1) > 1:
+        remaining = int((boosts.get("luck_expires", 0) - now) / 60)
+        bot.answer_callback_query(
+            call.id,
+            f"⚠️ Буст удачи уже активен ({remaining} мин.). Дождись окончания!",
+            show_alert=True
+        )
+        return
+
+    if boost_type == "coins" and boosts.get("coins_multiplier", 1) > 1:
+        remaining = int((boosts.get("coins_expires", 0) - now) / 60)
+        bot.answer_callback_query(
+            call.id,
+            f"⚠️ Буст коинов уже активен ({remaining} мин.). Дождись окончания!",
+            show_alert=True
+        )
+        return
+
+    if boost_type == "nextbox" and boosts.get("nextbox_multiplier", 1) > 1:
+        bot.answer_callback_query(
+            call.id,
+            f"⚠️ Буст следующего бокса уже активен!",
+            show_alert=True
+        )
+        return
+
+    # Активируем буст
+    boost_inv[item_id] -= 1
+    if boost_inv[item_id] <= 0:
+        del boost_inv[item_id]
+
+    if boost_type == "luck":
+        boosts["luck_multiplier"] = item["multiplier"]
+        boosts["luck_expires"] = now + item["duration"]
+        result_text = (
+            f"⚡ Буст удачи {item['multiplier']}x активирован!\n"
+            f"Длительность: {item['duration'] // 60} минут"
+        )
+
+    elif boost_type == "coins":
+        boosts["coins_multiplier"] = item["multiplier"]
+        boosts["coins_expires"] = now + item["duration"]
+        result_text = (
+            f"💰 Буст коинов {item['multiplier']}x активирован!\n"
+            f"Длительность: {item['duration'] // 60} минут"
+        )
+
+    elif boost_type == "nextbox":
+        boosts["nextbox_multiplier"] = item["multiplier"]
+        result_text = (
+            f"🎁 Буст {item['multiplier']}x на следующий бокс активирован!"
+        )
+
+    else:
+        result_text = "✅ Буст активирован!"
+
+    schedule_save()
+
+    bot.answer_callback_query(call.id, "✅ Активировано!", show_alert=False)
+
+    # Уведомление
+    bot.send_message(
+        call.message.chat.id,
+        f"🚀 <b>{item['name']}</b>\n\n{result_text}",
+        parse_mode="HTML"
+    )
+
+    # Обновляем сообщение инвентаря
+    try:
+        bot.edit_message_text(
+            boost_inventory_text(user),
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=boost_inventory_keyboard(user),
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
 
 # ====== ЗАПУСК ======
 if __name__ == "__main__":
