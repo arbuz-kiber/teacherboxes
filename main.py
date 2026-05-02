@@ -1,4 +1,4 @@
-# v 3.1 — PostgreSQL
+# v 3.2 — PostgreSQL
 
 import telebot
 import random
