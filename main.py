@@ -31,6 +31,8 @@ trade_rooms = {}
 pending_qty = {}
 card_menus = {}
 
+photo_cache = {}
+
 # ====== БЛОКИРОВКА ======
 data_lock = threading.Lock()
 _save_scheduled = False
@@ -588,6 +590,21 @@ def open_box(msg):
 
     text = f"{emoji} <b>{clean_name}</b>\n<i>{rname}</i>\n\n+{card['reward']} 💰"
 
+    # Проверяем есть ли file_id в кэше
+    if card["name"] in photo_cache:
+        try:
+            bot.send_photo(
+                msg.chat.id,
+                photo_cache[card["name"]],
+                caption=text,
+                parse_mode="HTML"
+            )
+            return
+        except Exception:
+            # Если file_id устарел — удаляем из кэша
+            del photo_cache[card["name"]]
+
+    # Ищем файл на диске
     if rarity_type in ("gold", "rainbow"):
         img_paths = [
             f"cards/{base_name}-{rarity}-{rarity_type}.png",
@@ -596,20 +613,39 @@ def open_box(msg):
     else:
         img_paths = [f"cards/{base_name}-{rarity}.png"]
 
-    sent = False
+    # Пытаемся отправить фото с 3 попытками
     for img_path in img_paths:
-        if os.path.exists(img_path):
+        if not os.path.exists(img_path):
+            continue
+
+        for attempt in range(3):
             try:
                 with open(img_path, "rb") as img:
-                    bot.send_photo(msg.chat.id, img, caption=text, parse_mode="HTML")
-                sent = True
-                break
+                    sent_msg = bot.send_photo(
+                        msg.chat.id,
+                        img,
+                        caption=text,
+                        parse_mode="HTML",
+                        timeout=60  # Увеличили таймаут до 60 сек
+                    )
+                
+                # Сохраняем file_id для повторного использования
+                if sent_msg.photo:
+                    photo_cache[card["name"]] = sent_msg.photo[-1].file_id
+                
+                print(f"[OK] Фото отправлено: {img_path}")
+                return
+            
             except Exception as e:
-                print(f"[WARN] Не удалось отправить фото {img_path}: {e}")
+                print(f"[WARN] Попытка {attempt+1}/3 для {img_path}: {e}")
+                if attempt < 2:
+                    time.sleep(1)  # Пауза перед повтором
+                continue
 
-    if not sent:
-        bot.send_message(msg.chat.id, text, parse_mode="HTML")
-
+    # Если все попытки провалились — отправляем текст
+    print(f"[ERROR] Не удалось отправить фото для {card['name']}, отправляем текст")
+    bot.send_message(msg.chat.id, text, parse_mode="HTML")
+    
 @bot.message_handler(func=lambda m: users.get(str(m.from_user.id), {}).get("captcha") is True)
 def captcha_check(msg):
     user = get_user(msg.from_user.id, msg.from_user)
