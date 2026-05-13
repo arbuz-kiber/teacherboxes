@@ -510,9 +510,6 @@ body::after{
       <button class="nav-btn" data-open="settings" style="--nb-c1:#10b981;--nb-c2:#06b6d4">
         <span class="nb-icon">⚙️</span><span class="nb-label">Настройки</span>
       </button>
-      <button class="nav-btn" data-open="profile" style="--nb-c1:#f472b6;--nb-c2:#a78bfa">
-        <span class="nb-icon">🪪</span><span class="nb-label">Профиль</span>
-      </button>
       <a class="nav-btn" href="https://t.me/+Xi2QTBad-3c2OGJi" target="_blank" rel="noopener" style="--nb-c1:#0ea5e9;--nb-c2:#38bdf8;text-decoration:none">
         <span class="nb-icon">✈️</span><span class="nb-label">Telegram</span>
       </a>
@@ -1282,6 +1279,7 @@ async function renderLeaders(){
   data.forEach((u,i)=>{
     const row = document.createElement("div");
     row.className = "lb-row";
+    row.style.cursor = "pointer";
     const me = currentUser && u.nickname === currentUser.nickname;
     if (me) row.style.borderColor = "rgba(139,92,246,0.5)";
     row.innerHTML = `
@@ -1289,9 +1287,80 @@ async function renderLeaders(){
       <div class="lb-name">${u.nickname}${me?" <span style='color:#a78bfa'>(ты)</span>":""}</div>
       <div class="lb-val">${lbSort==="balance"?u.balance+" 💰":u.opens+" 📦"}</div>
     `;
+    row.addEventListener("click", () => viewPlayerProfile(u.nickname));
     body.appendChild(row);
   });
 }
+
+async function viewPlayerProfile(nickname){
+  $("modalTitle").textContent = "🪪 Профиль";
+  const body = $("modalBody");
+  body.innerHTML = `<div style="text-align:center;color:var(--text-muted);padding:30px;font-size:13px">Загрузка…</div>`;
+  openModal();
+  if (!sb){
+    body.innerHTML = `<div style="text-align:center;color:var(--text-dim);padding:30px;font-size:12px">Supabase не настроен.</div>`;
+    return;
+  }
+  const { data: u, error } = await sb.from("players").select("*").eq("nickname", nickname).maybeSingle();
+  if (error || !u){
+    body.innerHTML = `<div style="text-align:center;color:#f87171;padding:30px;font-size:13px">Игрок не найден</div>`;
+    return;
+  }
+  const inv = u.inventory || {};
+  const totalCards = Object.values(inv).reduce((s,v)=>s+v,0);
+  const uniqCards = Object.keys(inv).length;
+  // best card
+  const keys = Object.keys(inv).filter(k => inv[k] > 0);
+  let best = null;
+  if (keys.length){
+    keys.sort((a,b)=>{
+      const ra = RARITY_ORDER[getCardRarity(b)] - RARITY_ORDER[getCardRarity(a)];
+      if (ra) return ra;
+      return TYPE_ORDER[getCardType(b)] - TYPE_ORDER[getCardType(a)];
+    });
+    best = keys[0];
+  }
+  const bestRar = best ? getCardRarity(best) : null;
+  const bestName = best ? formatName(best) : "—";
+  const isMe = currentUser && currentUser.nickname === u.nickname;
+
+  // rank
+  let rankText = "—";
+  try {
+    const { data: all } = await sb.from("leaderboard").select("nickname,balance").order("balance",{ascending:false}).limit(500);
+    if (all){
+      const idx = all.findIndex(x => x.nickname === u.nickname);
+      rankText = idx >= 0 ? `#${idx+1}` : "Нет в топе";
+    }
+  } catch {}
+
+  body.innerHTML = `
+    <div style="text-align:center;padding:6px 0 14px">
+      <div style="font-size:48px">🪪</div>
+      <div style="font-family:'Unbounded',sans-serif;font-weight:900;font-size:20px;margin-top:4px">${u.nickname}${isMe?" <span style='color:#a78bfa;font-size:13px'>(ты)</span>":""}</div>
+      <div style="color:var(--text-muted);font-size:12px;margin-top:4px">📊 Место в лидерах: ${rankText}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div class="rarity-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div style="font-size:10px;color:var(--text-dim);font-weight:800;letter-spacing:1px;text-transform:uppercase">💰 Шейк-коины</div>
+        <div style="font-family:'Unbounded',sans-serif;font-weight:900;font-size:18px;color:#fbbf24">${u.balance||0}</div>
+      </div>
+      <div class="rarity-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div style="font-size:10px;color:var(--text-dim);font-weight:800;letter-spacing:1px;text-transform:uppercase">📦 Открыто боксов</div>
+        <div style="font-family:'Unbounded',sans-serif;font-weight:900;font-size:18px;color:#a78bfa">${u.opens||0}</div>
+      </div>
+      <div class="rarity-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div style="font-size:10px;color:var(--text-dim);font-weight:800;letter-spacing:1px;text-transform:uppercase">🎒 Карточек</div>
+        <div style="font-family:'Unbounded',sans-serif;font-weight:900;font-size:18px;color:#f0abfc">${totalCards} <span style="font-size:11px;color:var(--text-dim)">/ ${uniqCards} уник.</span></div>
+      </div>
+      <div class="rarity-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div style="font-size:10px;color:var(--text-dim);font-weight:800;letter-spacing:1px;text-transform:uppercase">🌟 Лучший</div>
+        <div style="font-family:'Unbounded',sans-serif;font-weight:900;font-size:14px;text-transform:capitalize" class="${bestRar?'r-'+bestRar:''}">${bestName}</div>
+      </div>
+    </div>
+  `;
+}
+
 
 /* ===== ACCOUNT / AUTH ===== */
 let authMode = "login";
@@ -1726,7 +1795,6 @@ document.querySelectorAll("[data-open]").forEach(b => {
     else if (what==="rarities") renderRarities();
     else if (what==="account") renderAccount();
     else if (what==="settings") renderSettings();
-      else if (what==="profile") renderProfile();
       else if (what==="admin") renderAdmin();
     openModal();
   });
