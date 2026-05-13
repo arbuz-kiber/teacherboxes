@@ -1350,8 +1350,8 @@ function renderAccount(){
 // 1) Создай проект на supabase.com
 // 2) Скопируй URL и anon key из Settings → API
 // 3) Вставь сюда:
-const SUPABASE_URL = ""; // <-- сюда https://xxxx.supabase.co
-const SUPABASE_KEY = ""; // <-- сюда anon public key
+const SUPABASE_URL = "https://qoqjknpngoutkyxfhjbc.supabase.co"; // <-- сюда https://xxxx.supabase.co
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvcWprbnBuZ291dGt5eGZoamJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNzc5ODQsImV4cCI6MjA5MzY1Mzk4NH0.FWtR5PROgNp0AZp-rS6EfmC2Y4mY0Y97veLmTzuGomg"; // <-- сюда anon public key
 
 let sb = null;
 let currentUser = null;
@@ -1489,8 +1489,6 @@ function renderSettings(){
   const body = $("modalBody");
   body.innerHTML = `
     <div style="color:var(--text-muted);font-size:13px;line-height:1.5;margin-bottom:14px">
-      Регистрация и облачное сохранение появятся скоро.<br>
-      Сейчас прогресс хранится локально в браузере.
     </div>
     <button class="btn-play" id="btnReset" style="background:linear-gradient(135deg,#7f1d1d,#ef4444);box-shadow:0 0 0 1px rgba(239,68,68,0.3),0 8px 24px -4px rgba(239,68,68,0.25);font-size:13px;padding:14px">
       🗑 Сбросить прогресс
