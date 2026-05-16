@@ -373,29 +373,86 @@ body::after{
 }
 .box-anim.show{display:flex}
 .roulette{
-  position:relative;width:240px;height:320px;perspective:1000px;
+  position:relative;width:100%;max-width:420px;
+  display:flex;align-items:flex-start;justify-content:center;gap:14px;
 }
-.roul-card{
-  position:absolute;inset:0;border-radius:18px;overflow:hidden;
+.reel-wrap{
+  position:relative;width:200px;height:300px;
+  border-radius:18px;overflow:hidden;
   background:linear-gradient(170deg,rgba(20,16,40,0.95),rgba(8,6,20,0.98));
-  display:flex;align-items:center;justify-content:center;
-  opacity:0;transform:scale(.6) rotateY(90deg);
-  transition:opacity .25s ease, transform .35s var(--ease-spring);
+  border:1px solid rgba(255,255,255,0.06);
 }
-.roul-card.in{opacity:1;transform:scale(1) rotateY(0)}
-.roul-card.out{opacity:0;transform:scale(1.15) rotateY(-90deg)}
-.roul-card img{width:100%;height:100%;object-fit:cover;display:block}
-.roul-card .inv-img-fallback{font-size:80px;width:100%;height:100%;border-radius:0}
+.reel-strip{
+  position:absolute;left:0;right:0;top:0;
+  display:flex;flex-direction:column;will-change:transform;
+}
+.reel-item{
+  width:200px;height:100px;flex:0 0 100px;
+  display:flex;align-items:center;justify-content:center;position:relative;
+}
+.reel-item img{width:84px;height:84px;object-fit:cover;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,0.5)}
+.reel-item .reel-fb{
+  width:84px;height:84px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Unbounded',sans-serif;font-size:32px;font-weight:900;
+  background:linear-gradient(135deg,#1a1530,#0a0818);color:rgba(255,255,255,0.4);
+}
+.reel-chance{
+  position:absolute;top:6px;left:50%;transform:translateX(-50%);
+  font-family:'Unbounded',sans-serif;font-weight:900;font-size:10px;
+  color:#fff;background:rgba(0,0,0,0.78);padding:3px 9px;border-radius:50px;
+  letter-spacing:.5px;white-space:nowrap;border:1px solid rgba(255,255,255,0.12);
+  z-index:3;
+}
+.reel-icon{
+  width:84px;height:84px;border-radius:14px;
+  display:flex;align-items:center;justify-content:center;font-size:50px;
+  background:linear-gradient(135deg,rgba(20,16,40,0.95),rgba(8,6,20,0.98));
+}
+.reel-clover .reel-icon{background:linear-gradient(135deg,rgba(16,185,129,0.35),rgba(16,185,129,0.08));box-shadow:0 0 22px rgba(16,185,129,0.5)}
+.reel-bonus  .reel-icon{background:linear-gradient(135deg,rgba(249,115,22,0.35),rgba(236,72,153,0.15));box-shadow:0 0 22px rgba(249,115,22,0.55)}
+.reel-pointer{
+  position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  height:100px;pointer-events:none;z-index:2;
+  border-top:2px solid rgba(251,191,36,0.75);
+  border-bottom:2px solid rgba(251,191,36,0.75);
+  box-shadow:inset 0 0 28px rgba(251,191,36,0.22);
+}
+.reel-fade{position:absolute;left:0;right:0;height:70px;pointer-events:none;z-index:2}
+.reel-fade.top{top:0;background:linear-gradient(to bottom,rgba(6,6,14,0.95),transparent)}
+.reel-fade.bot{bottom:0;background:linear-gradient(to top,rgba(6,6,14,0.95),transparent)}
 .roul-label{
   font-family:'Unbounded',sans-serif;font-weight:900;font-size:13px;
-  color:var(--text-muted);letter-spacing:3px;text-transform:uppercase;
-  text-align:center;
+  color:var(--text-muted);letter-spacing:2px;text-transform:uppercase;text-align:center;
 }
 .roul-glow{
-  position:absolute;inset:-20px;border-radius:28px;z-index:-1;
+  position:absolute;inset:-10px;border-radius:24px;z-index:0;pointer-events:none;
   background:conic-gradient(from 0deg,#8b5cf6,#ec4899,#fbbf24,#10b981,#8b5cf6);
-  filter:blur(30px);opacity:.4;animation:borderRotate 3s linear infinite;
+  filter:blur(26px);opacity:.32;animation:borderRotate 3s linear infinite;
 }
+@keyframes borderRotate{to{transform:rotate(360deg)}}
+.trail{
+  display:flex;flex-direction:column;gap:8px;padding-top:8px;
+  max-height:300px;overflow:hidden;width:58px;
+}
+.trail-item{
+  width:54px;height:54px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:26px;position:relative;flex-shrink:0;
+  background:linear-gradient(135deg,rgba(20,16,40,0.95),rgba(8,6,20,0.98));
+  border:1px solid rgba(255,255,255,0.08);
+  animation:trailIn .35s var(--ease-spring);
+}
+.trail-item img{width:100%;height:100%;object-fit:cover;border-radius:11px}
+.trail-item.t-clover{box-shadow:0 0 14px rgba(16,185,129,0.55);border-color:rgba(16,185,129,0.5)}
+.trail-item.t-bonus{box-shadow:0 0 14px rgba(249,115,22,0.55);border-color:rgba(249,115,22,0.5)}
+.trail-mult{
+  position:absolute;bottom:-6px;right:-6px;
+  background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#1a1000;
+  font-family:'Unbounded',sans-serif;font-weight:900;font-size:9px;
+  padding:2px 6px;border-radius:50px;border:2px solid #06060e;
+}
+@keyframes trailIn{from{opacity:0;transform:scale(.5) translateX(-12px)}to{opacity:1;transform:scale(1) translateX(0)}}
 
 /* AUTH */
 .auth-form{display:flex;flex-direction:column;gap:10px}
@@ -519,8 +576,15 @@ body::after{
 
 <!-- Box opening animation overlay (рулетка) -->
 <div class="box-anim" id="boxAnim">
-  <div class="roulette" id="roulette">
-    <div class="roul-glow"></div>
+  <div class="roulette">
+    <div class="reel-wrap">
+      <div class="roul-glow"></div>
+      <div class="reel-strip" id="reelStrip"></div>
+      <div class="reel-fade top"></div>
+      <div class="reel-fade bot"></div>
+      <div class="reel-pointer"></div>
+    </div>
+    <div class="trail" id="reelTrail"></div>
   </div>
   <div class="roul-label" id="roulLabel">Открываем…</div>
 </div>
@@ -763,7 +827,156 @@ function startCooldown(){
   cooldownTimer = setInterval(refreshCooldown, 100);
 }
 
-function openBox(){
+/* ===== специальные исходы (клевер / бонус) ===== */
+const SPECIAL = {
+  clover: {type:"clover", emoji:"🍀", chanceText:"🍀 1 / 16"},
+  bonus:  {type:"bonus",  emoji:"🎯", chanceText:"🎯 1 / 18"},
+};
+const CLOVER_CHANCE = 0.06;
+const BONUS_CHANCE  = 0.055;
+
+function makeTeacherOutcome(){
+  const c = rollCard();
+  return {type:"teacher", name:c.name, reward:c.reward};
+}
+function rollOutcome(allowSpecial){
+  if (allowSpecial){
+    const r = Math.random();
+    if (r < CLOVER_CHANCE) return {...SPECIAL.clover};
+    if (r < CLOVER_CHANCE + BONUS_CHANCE) return {...SPECIAL.bonus};
+  }
+  return makeTeacherOutcome();
+}
+
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+function chanceLabel(o){
+  if (o.type === "clover" || o.type === "bonus") return o.chanceText;
+  const base = getCardBase(o.name);
+  const c = CARDS.find(x => x.name === base);
+  if (!c) return "";
+  const n = Math.round(1/c.chance);
+  return "1 / " + n;
+}
+
+function makeReelItem(o){
+  const el = document.createElement("div");
+  el.className = "reel-item";
+  if (o.type === "clover") el.classList.add("reel-clover");
+  if (o.type === "bonus")  el.classList.add("reel-bonus");
+
+  const ch = document.createElement("div");
+  ch.className = "reel-chance";
+  ch.textContent = chanceLabel(o);
+  el.appendChild(ch);
+
+  if (o.type !== "teacher"){
+    const ic = document.createElement("div");
+    ic.className = "reel-icon";
+    ic.textContent = o.emoji;
+    el.appendChild(ic);
+    return el;
+  }
+
+  const paths = imgPaths(o.name);
+  const base = getCardBase(o.name);
+  const img = document.createElement("img");
+  img.alt = base;
+  let i = 0;
+  const tryLoad = () => {
+    if (i >= paths.length){
+      const fb = document.createElement("div");
+      fb.className = "reel-fb";
+      fb.textContent = base.charAt(0).toUpperCase();
+      img.replaceWith(fb);
+      return;
+    }
+    img.src = paths[i++];
+  };
+  img.onerror = tryLoad;
+  tryLoad();
+  el.appendChild(img);
+  return el;
+}
+
+function playReelSpin(finalOutcome, luckMult, allowSpecial){
+  return new Promise(resolve => {
+    const strip = $("reelStrip");
+    strip.innerHTML = "";
+    strip.style.transition = "none";
+    strip.style.transform = "translateY(0)";
+
+    const fillers = [];
+    for (let i = 0; i < 26; i++){
+      // наполнители: иногда показываем клевер/бонус для антуража
+      const r = Math.random();
+      if (allowSpecial && r < 0.06) fillers.push({...SPECIAL.clover});
+      else if (allowSpecial && r < 0.12) fillers.push({...SPECIAL.bonus});
+      else fillers.push(makeTeacherOutcome());
+    }
+    const items = [...fillers, finalOutcome];
+
+    const ITEM_H = 100;
+    items.forEach(o => strip.appendChild(makeReelItem(o)));
+
+    const finalIndex = items.length - 1;
+    // viewport 300px, pointer center 150px, item center offset 50px
+    const targetY = 100 - finalIndex * ITEM_H;
+    // микро-джиттер чтобы выглядело "по-настоящему"
+    const jitter = (Math.random() * 6 - 3);
+
+    $("roulLabel").textContent = luckMult > 1
+      ? `Крутим · ×${luckMult} удача`
+      : "Открываем…";
+
+    requestAnimationFrame(() => {
+      strip.style.transition = "transform 3s cubic-bezier(0.16,1,0.24,1)";
+      strip.style.transform = `translateY(${targetY + jitter}px)`;
+    });
+
+    setTimeout(resolve, 3120);
+  });
+}
+
+function addTrail(o, luckMult){
+  const trail = $("reelTrail");
+  const it = document.createElement("div");
+  it.className = "trail-item";
+
+  if (o.type === "clover"){
+    it.classList.add("t-clover");
+    it.textContent = "🍀";
+  } else if (o.type === "bonus"){
+    it.classList.add("t-bonus");
+    it.textContent = "🎯";
+  } else {
+    const paths = imgPaths(o.name);
+    const base = getCardBase(o.name);
+    const img = document.createElement("img");
+    let i = 0;
+    const tryLoad = () => {
+      if (i >= paths.length){
+        img.replaceWith(document.createTextNode(base.charAt(0).toUpperCase()));
+        return;
+      }
+      img.src = paths[i++];
+    };
+    img.onerror = tryLoad;
+    tryLoad();
+    it.appendChild(img);
+    if (luckMult > 1){
+      const m = document.createElement("div");
+      m.className = "trail-mult";
+      m.textContent = "×" + luckMult;
+      it.appendChild(m);
+    }
+  }
+  trail.appendChild(it);
+  // ограничить, оставив свежие
+  while (trail.children.length > 5) trail.removeChild(trail.firstChild);
+}
+
+async function openBox(){
   if (state.captcha){ showCaptcha(); return; }
   const remain = COOLDOWN - (Date.now() - state.last_open);
   if (remain > 0){ toast(`⏳ Подожди ${(remain/1000).toFixed(1)} сек`); return; }
@@ -780,90 +993,68 @@ function openBox(){
     return;
   }
 
-  // решаем дроп заранее, чтобы рулетка остановилась на нём
   const boosts = getActiveBoosts();
   const coinsMult = Math.max(boosts.coins_multiplier||1, boosts.nextbox_multiplier||1);
-  const card = rollCard();
-  card.reward = Math.floor(card.reward * coinsMult);
   if ((boosts.nextbox_multiplier||1) > 1) boosts.nextbox_multiplier = 1;
 
   startCooldown();
-  playBoxAnim(card.name, () => {
-    state.inventory[card.name] = (state.inventory[card.name]||0) + 1;
-    state.balance += card.reward;
-    state.history.unshift({key:card.name, reward:card.reward, t:Date.now()});
-    if (state.history.length > 50) state.history.length = 50;
-    saveState(); syncHUD();
-    syncCloud();
-    showDrop(card);
-  });
-}
-
-/* ===== BOX ANIMATION (рулетка из 8 карточек) ===== */
-function makeRoulCard(key){
-  const wrap = document.createElement("div");
-  wrap.className = "roul-card";
-  const r = getCardRarity(key);
-  wrap.classList.add("b-"+r);
-  const paths = imgPaths(key);
-  const base = getCardBase(key);
-  let i = 0;
-  const img = document.createElement("img");
-  img.alt = base;
-  const tryLoad = () => {
-    if (i >= paths.length){
-      const fb = document.createElement("div");
-      fb.className = "inv-img-fallback";
-      fb.textContent = base.charAt(0).toUpperCase();
-      img.replaceWith(fb);
-      return;
-    }
-    img.src = paths[i++];
-  };
-  img.onerror = tryLoad;
-  tryLoad();
-  wrap.appendChild(img);
-  return wrap;
-}
-function playBoxAnim(finalKey, done){
   const overlay = $("boxAnim");
-  const roul = $("roulette");
-  // очистить, оставив glow
-  roul.querySelectorAll(".roul-card").forEach(n=>n.remove());
   overlay.classList.add("show");
+  $("reelTrail").innerHTML = "";
 
-  // 7 случайных + 1 финальная
-  const keys = [];
-  for (let i=0;i<7;i++){
-    keys.push(rollCard().name);
+  let luckMult = 1;
+  let cloverCount = 0;
+  let bonusStreak = 0;
+  let finalCard = null;
+
+  // первая крутка — спец возможны; после 4х клевера и после джекпота — форсим учителя
+  let allowSpecial = true;
+
+  while (true){
+    const outcome = rollOutcome(allowSpecial);
+    await playReelSpin(outcome, luckMult, allowSpecial);
+    addTrail(outcome, luckMult);
+
+    if (outcome.type === "clover"){
+      cloverCount++;
+      luckMult *= 2;
+      $("roulLabel").textContent = `🍀 Клевер! Удача ×${luckMult}`;
+      // после 2-го клевера (×4) — крутим пока не учитель
+      if (cloverCount >= 2) allowSpecial = false;
+      await wait(750);
+      continue;
+    }
+
+    if (outcome.type === "bonus"){
+      bonusStreak++;
+      if (bonusStreak >= 3){
+        luckMult = Math.max(luckMult, 100);
+        bonusStreak = 0;
+        allowSpecial = false; // джекпот-крутка обязана дать учителя
+        $("roulLabel").textContent = `🎯 ДЖЕКПОТ! ×${luckMult} удача`;
+      } else {
+        $("roulLabel").textContent = `🎯 Бонус ${bonusStreak}/3`;
+      }
+      await wait(800);
+      continue;
+    }
+
+    finalCard = outcome;
+    break;
   }
-  keys.push(finalKey);
 
-  let idx = 0;
-  let prev = null;
-  const STEP = 300;
-  const showNext = () => {
-    if (prev){
-      prev.classList.remove("in");
-      prev.classList.add("out");
-      const old = prev;
-      setTimeout(()=>old.remove(), 350);
-    }
-    if (idx >= keys.length){
-      setTimeout(()=>{
-        overlay.classList.remove("show");
-        done();
-      }, 600);
-      return;
-    }
-    const card = makeRoulCard(keys[idx]);
-    roul.appendChild(card);
-    requestAnimationFrame(()=>card.classList.add("in"));
-    prev = card;
-    idx++;
-    setTimeout(showNext, STEP);
-  };
-  showNext();
+  const reward = Math.floor(finalCard.reward * luckMult * coinsMult);
+  state.inventory[finalCard.name] = (state.inventory[finalCard.name]||0) + 1;
+  state.balance += reward;
+  state.history.unshift({key:finalCard.name, reward, t:Date.now(), luck:luckMult});
+  if (state.history.length > 50) state.history.length = 50;
+  saveState(); syncHUD();
+  if (typeof syncCloud === "function") syncCloud();
+
+  $("roulLabel").textContent = luckMult > 1 ? `🏆 Победа! ×${luckMult}` : "🏆 Готово!";
+  await wait(550);
+  overlay.classList.remove("show");
+  showDrop({name:finalCard.name, reward});
 }
 
 function showDrop(card){
